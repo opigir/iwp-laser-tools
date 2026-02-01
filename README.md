@@ -1,6 +1,6 @@
 # IWP Laser Tools
 
-Professional suite of tools for IWP (ILDA Wave Protocol) laser development and testing. Includes real-time visualization, ILDA file sending, and network analysis without requiring physical ILDAWaveX16 hardware.
+ Suite of tools for IWP (ILDA Wave Protocol) laser development and testing. Includes real-time visualization, ILDA file sending, and network analysis without requiring physical ILDAWaveX16 hardware.
 
 ## Features
 
