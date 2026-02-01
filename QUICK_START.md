@@ -3,7 +3,7 @@
 ## 1. Install and Setup
 
 ```bash
-cd python-idn-receiver
+cd iwp-laser-tools
 python install_and_run.py
 ```
 
@@ -11,7 +11,7 @@ Or manually:
 
 ```bash
 pip install -r requirements.txt
-python src/main.py discover
+python src/iwp_visualizer_cli.py discover
 ```
 
 ## 2. Configure IWP Sender Device
@@ -23,27 +23,33 @@ python src/main.py discover
 5. Set **Target Port** to `7255`
 6. Click "Update Configuration"
 
-## 3. Start Receiving Data
+## 3. Start Application
 
-### Option A: Full Visualizer (Recommended)
+### Option A: Enhanced Visualizer (Recommended)
+Full-featured GUI with integrated sender/receiver functionality:
 ```bash
-python src/main.py visualize
+python src/main.py
 ```
 
-### Option B: Server Only (Console Output)
+### Option B: Command Line Tools
+Basic visualizer:
 ```bash
-python src/main.py server
+python src/iwp_visualizer_cli.py visualize
+```
+
+Server only (console output):
+```bash
+python src/iwp_visualizer_cli.py server
 ```
 
 ### Option C: Individual Components
 ```bash
 # Network discovery
+python src/iwp_visualizer_cli.py discover
+
+# Direct component access
 python src/network_discovery.py
-
-# UDP server only
 python src/udp_server.py
-
-# Visualizer only (with integrated server)
 python src/laser_visualizer.py
 ```
 
@@ -70,8 +76,18 @@ python src/laser_visualizer.py
 pip install --upgrade pygame
 ```
 
-## Controls (Visualizer)
+## Controls
 
+### Enhanced Visualizer (main.py)
+- `TAB` - Toggle Sender/Receiver mode
+- `F1` - Open file browser
+- `G` - Toggle grid
+- `C` - Toggle crosshair
+- `P` - Toggle points
+- `L` - Toggle lines
+- GUI controls for all features
+
+### Basic Visualizer (iwp_visualizer_cli.py)
 - `G` - Toggle grid
 - `C` - Toggle crosshair
 - `P` - Toggle points

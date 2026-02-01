@@ -18,26 +18,34 @@ The IWP Visualizer now includes integrated ILDA file playback capability, allowi
 
 1. **Via Command Line**:
    ```bash
-   python src/main.py visualize --ilda-file "path/to/animation.ild"
+   python src/main.py --ilda-file "path/to/animation.ild"
    ```
 
 2. **Via Interactive Mode**:
-   - Start the visualizer: `python src/main.py visualize`
-   - Press `O` to open file dialog
-   - Select your `.ild` file
+   - Start the enhanced visualizer: `python src/main.py`
+   - Click "Load ILDA" button or press `F1`
+   - Navigate and select your `.ild` file
 
 ### Playback Controls
 
+### Enhanced Visualizer (main.py)
+| Control | Action |
+|---------|--------|
+| `F1` | Open ILDA file browser |
+| `TAB` | Toggle Sender/Receiver mode |
+| Play/Pause Button | Control playback |
+| Next/Previous Buttons | Frame navigation |
+| Speed Slider | Adjust playback speed |
+| Loop Toggle | Enable/disable loop |
+| Transmit Toggle | Send to network |
+
+### Basic Controls
 | Key | Action |
 |-----|--------|
-| `O` | Open ILDA file |
-| `SPACE` | Play/Pause animation |
-| `R` | Restart from beginning |
-| `N` | Next frame (when paused) |
-| `M` | Previous frame (when paused) |
-| `+/-` | Increase/Decrease playback speed |
-| `L` | Toggle loop mode |
-| `S` | Toggle between ILDA and live IWP mode |
+| `G` | Toggle grid |
+| `C` | Toggle crosshair |
+| `P` | Toggle points |
+| `L` | Toggle lines |
 
 ### Display Modes
 
@@ -108,19 +116,20 @@ rendering:
 ### 1. Local Development
 ```bash
 # Test your ILDA animation locally
-python src/main.py visualize --ilda-file "my_animation.ild" --loop
+python src/main.py --ilda-file "my_animation.ild" --mode sender
 ```
 
 ### 2. Hardware Comparison
 ```bash
-# Compare ILDA file vs hardware output
-python src/main.py visualize --ilda-file "reference.ild" --mode overlay
+# Load ILDA file and receive live data simultaneously
+python src/main.py --mode receiver
+# Then load ILDA file via GUI for comparison
 ```
 
 ### 3. Educational Demo
 ```bash
-# Show ILDA structure and playback
-python src/main.py visualize --ilda-file "demo.ild" --info --step-mode
+# Use enhanced GUI for interactive exploration
+python src/main.py --ilda-file "demo.ild"
 ```
 
 ## Troubleshooting
@@ -146,7 +155,12 @@ python src/main.py visualize --ilda-file "demo.ild" --info --step-mode
 
 Enable debug output to see parsing details:
 ```bash
-python src/main.py visualize --ilda-file "file.ild" --debug
+python src/main.py --ilda-file "file.ild" --mode sender
+```
+
+Or use the command-line version:
+```bash
+python src/iwp_visualizer_cli.py visualize --help
 ```
 
 ## Performance Considerations

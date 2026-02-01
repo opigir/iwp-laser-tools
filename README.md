@@ -23,32 +23,37 @@ pip install -r requirements.txt
 
 ### Basic Usage
 
-**1. Network Discovery**
+**1. Enhanced Visualizer (Recommended)**
+Run the full-featured enhanced visualizer with integrated sender/receiver:
+```bash
+python src/main.py
+```
+
+**2. Network Discovery**
 Find your computer's IP address for IWP device configuration:
 ```bash
-python src/main.py discover
+python src/iwp_visualizer_cli.py discover
 ```
 
-**2. Start Visualizer**
-Run the real-time laser pattern visualizer:
+**3. Command Line Tools**
+Basic visualizer:
 ```bash
-python src/main.py visualize
+python src/iwp_visualizer_cli.py visualize
 ```
 
-**3. Server Mode**
-Run UDP server only (no GUI):
+Server only (no GUI):
 ```bash
-python src/main.py server
+python src/iwp_visualizer_cli.py server
 ```
 
 ### Testing with iwp-ilda.py
 
 Test the visualizer with ILDA files using the included iwp-ilda.py sender:
 ```bash
-# Terminal 1: Start visualizer
-python src/main.py visualize
+# Terminal 1: Start enhanced visualizer
+python src/main.py
 
-# Terminal 2: Send ILDA file
+# Terminal 2: Send ILDA file (or use built-in ILDA loader in GUI)
 python iwp-ilda.py --file "animation.ild" --ip 127.0.0.1 --scan 1000 --repeat 10
 ```
 
@@ -70,8 +75,14 @@ Default settings:
 
 ## Command Line Options
 
+**Enhanced Visualizer:**
 ```bash
-python src/main.py visualize --help
+python src/main.py --help
+```
+
+**Command Line Tools:**
+```bash
+python src/iwp_visualizer_cli.py --help
 ```
 
 Options:
@@ -83,7 +94,9 @@ Options:
 
 - **`iwp_protocol.py`**: Professional IWP parser supporting all command types
 - **`udp_server.py`**: High-performance UDP server with connection management
-- **`laser_visualizer.py`**: Real-time pygame-based visualization engine
+- **`main.py`**: Enhanced visualizer with integrated sender/receiver GUI
+- **`iwp_visualizer_cli.py`**: Command-line interface tools
+- **`laser_visualizer.py`**: Basic pygame-based visualization engine
 - **`network_discovery.py`**: Network configuration and discovery utilities
 - **`port_test.py`**: Network connectivity testing tools
 
