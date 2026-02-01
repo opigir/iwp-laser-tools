@@ -34,7 +34,7 @@ def run_network_discovery():
     """Run network discovery to help user configure IWP sender device"""
     print("\n🔍 Running network discovery...")
     try:
-        subprocess.run([sys.executable, "src/main.py", "discover"])
+        subprocess.run([sys.executable, "src/iwp_visualizer_cli.py", "discover"])
         return True
     except Exception as e:
         print(f"❌ Network discovery failed: {e}")
@@ -61,16 +61,16 @@ def main():
     print("\n🎯 Next Steps:")
     print("1. Configure your IWP-enabled sender device with the IP address shown above")
     print("2. To start the visualizer:")
-    print("   python src/main.py visualize")
+    print("   python src/main.py  # Enhanced visualizer (default)")
     print("3. To run server only:")
-    print("   python src/main.py server")
+    print("   python src/iwp_visualizer_cli.py server  # Command-line tools")
 
     # Ask if user wants to start visualizer
     try:
         response = input("\n🎨 Start the laser pattern visualizer now? (y/n): ").strip().lower()
         if response in ['y', 'yes']:
             print("\nStarting visualizer...")
-            subprocess.run([sys.executable, "src/main.py", "visualize"])
+            subprocess.run([sys.executable, "src/main.py"])
     except KeyboardInterrupt:
         print("\n👋 Setup complete!")
 

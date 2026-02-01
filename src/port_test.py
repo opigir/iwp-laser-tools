@@ -316,7 +316,7 @@ def main():
         print(f"\n⚠️  Some tests failed. Check the issues above.")
         print(f"💡 Try running the IWP receiver anyway - it might still work!")
 
-    print(f"\n🚀 Next step: python src/main.py visualize")
+    print(f"\n🚀 Next step: python src/main.py  # Enhanced visualizer")
 
 if __name__ == "__main__":
     main()
