@@ -7,15 +7,13 @@ Provides ILDA file loading and playback capabilities
 import struct
 import time
 import socket
-import threading
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, Generator, Callable
-from pathlib import Path
+from typing import List, Optional, Tuple
 
 try:
-    from iwp_protocol import IWPPoint, IWPPacket
+    from iwp_protocol import IWPPacket
 except ImportError:
-    from .iwp_protocol import IWPPoint, IWPPacket
+    from .iwp_protocol import IWPPacket
 
 # ILDA constants
 ILDA_HEADER_SIZE = 32
@@ -66,7 +64,7 @@ class ILDALoader:
             return False
 
     def _read_ilda_header(self, buf: bytes, offset: int) -> Tuple[Optional[IldaHeader], int]:
-        """Read ILDA header from buffer"""
+        """Read ILDA header from buffer - exact match to iwp-ilda.py"""
         head = buf[offset:offset + ILDA_HEADER_SIZE]
         if len(head) < ILDA_HEADER_SIZE:
             return None, offset
@@ -75,8 +73,8 @@ class ILDALoader:
             return None, offset
 
         format_code = head[7]
-        frame_name = head[8:16].rstrip(b"\\x00").decode(errors="ignore")
-        company_name = head[16:24].rstrip(b"\\x00").decode(errors="ignore")
+        frame_name = head[8:16].rstrip(b"\x00").decode(errors="ignore")
+        company_name = head[16:24].rstrip(b"\x00").decode(errors="ignore")
         records = struct.unpack(">H", head[24:26])[0]
         frame_number = struct.unpack(">H", head[26:28])[0]
         total_frames = struct.unpack(">H", head[28:30])[0]
@@ -273,179 +271,150 @@ class ILDAPlayer:
         }
 
 class ILDAToIWPConverter:
-    """Convert ILDA frames to IWP packets"""
+    """Convert ILDA frames to direct transmission format"""
 
     @staticmethod
-    def _transform_coordinates(x: int, y: int) -> Tuple[int, int]:
-        """Transform ILDA coordinates to IWP coordinates"""
-        # ILDA uses signed 16-bit coordinates (-32768 to +32767)
-        # IWP uses unsigned 16-bit coordinates (0 to 65535)
-        # Match the transformation from original iwp-ilda.py
-        xn = (x + 0x8000) & 0xFFFF  # Convert to unsigned 16-bit
-        yn = (-y + 0x8000) & 0xFFFF  # Flip Y axis and convert to unsigned
-        return xn, yn
+    def convert_frame_to_points(frame: IldaFrame) -> List[Tuple[int, int, int, int, int, int, int]]:
+        """Convert ILDA frame to point list for direct transmission matching iwp-ilda.py"""
+        return frame.points
 
-    @staticmethod
-    def convert_frame_to_packet(frame: IldaFrame, timestamp: Optional[int] = None) -> IWPPacket:
-        """Convert an ILDA frame to an IWP packet"""
-        if timestamp is None:
-            timestamp = int(time.time() * 1000000)  # microseconds
+class ProjectorSender:
+    """Network sender based on the proven iwp-ilda.py implementation"""
 
-        iwp_points = []
-
-        for x, y, z, status, r, g, b in frame.points:
-            # Transform coordinates
-            iwp_x, iwp_y = ILDAToIWPConverter._transform_coordinates(x, y)
-
-            # Handle blanking
-            blanking = bool(status & STATUS_BLANKED_MASK)
-
-            # Convert 8-bit colors to 16-bit if needed
-            if r <= 255 and g <= 255 and b <= 255:
-                r16 = r * 257 if not blanking else 0  # Convert 8-bit to 16-bit
-                g16 = g * 257 if not blanking else 0
-                b16 = b * 257 if not blanking else 0
-            else:
-                r16 = r if not blanking else 0
-                g16 = g if not blanking else 0
-                b16 = b if not blanking else 0
-
-            iwp_point = IWPPoint(
-                x=iwp_x,
-                y=iwp_y,
-                r=r16,
-                g=g16,
-                b=b16,
-                blanking=blanking
-            )
-            iwp_points.append(iwp_point)
-
-        return IWPPacket(
-            points=iwp_points,
-            commands=[],  # No commands for ILDA conversion
-            point_count=len(iwp_points),
-            scan_period=None,  # Will be set by caller if needed
-            timestamp=timestamp,
-            raw_size=len(iwp_points) * 11  # Estimate for TYPE_3 commands
-        )
-
-class NetworkSender:
-    """Network sender for transmitting IWP packets via UDP"""
-
-    def __init__(self, target_ip: str = "127.0.0.1", port: int = 7200, scan_rate: int = 1000):
-        self.target_ip = target_ip
-        self.port = port
-        self.scan_period = max(1, min(4294967295, int(1000000 / scan_rate)))
-        self.sock = None
+    def __init__(self, ip: str = "127.0.0.1", scan_rate: int = 1000, point_delay: float = 0.0):
+        self.ip = ip
+        self.port = 7200
+        self.scan_period = max(1, min(4294967295, int(1000000/int(scan_rate))))
+        self.point_delay = point_delay
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.connected = False
         self.error_count = 0
         self.packets_sent = 0
         self.bytes_sent = 0
         self.last_error = None
-        self._lock = threading.Lock()
+        self._setup_connection()
 
-    def connect(self) -> bool:
-        """Establish UDP connection"""
+    def _setup_connection(self):
+        """Send initial scan period setup packet"""
         try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            # Send scan period setup packet
-            setup_packet = struct.pack(">B I", IW_TYPE_1, self.scan_period)
-            self.sock.sendto(setup_packet, (self.target_ip, self.port))
+            self.sock.sendto(struct.pack(">B I", IW_TYPE_1, self.scan_period), (self.ip, self.port))
             self.connected = True
             self.last_error = None
-            return True
         except Exception as e:
             self.last_error = str(e)
             self.connected = False
-            return False
 
-    def disconnect(self):
-        """Close UDP connection"""
-        with self._lock:
-            if self.sock:
-                try:
-                    # Send end frame
-                    end_packet = struct.pack(">B", IW_TYPE_0)
-                    self.sock.sendto(end_packet, (self.target_ip, self.port))
-                except:
-                    pass
-                finally:
-                    self.sock.close()
-                    self.sock = None
-            self.connected = False
+    @staticmethod
+    def _u16(x: int) -> int:
+        return x & 0xFFFF
 
-    def send_packet(self, packet: IWPPacket) -> bool:
-        """Send an IWP packet over the network"""
-        if not self.connected or not self.sock:
+    @staticmethod
+    def _to_u16_from_u8(c: int) -> int:
+        return (c & 0xFF) * 257
+
+    def _transform_xy(self, x: int, y: int) -> Tuple[int, int]:
+        xn = (x + 0x8000)
+        yn = (-y + 0x8000)
+        return self._u16(xn), self._u16(yn)
+
+    def send_frame(self, points: List[Tuple[int, int, int, int, int, int, int]]):
+        """Send frame using the exact same method as iwp-ilda.py"""
+        if not self.connected:
             return False
 
         try:
-            with self._lock:
-                # Convert packet to network format
-                network_data = self._packet_to_network_data(packet)
+            max_packet_size = 1023
+            point_size = struct.calcsize(">B H H H H H")  # 11 bytes
+            max_points_per_packet = max_packet_size // point_size
 
-                # Send in chunks if needed
-                max_packet_size = 1023
-                for i in range(0, len(network_data), max_packet_size):
-                    chunk = network_data[i:i + max_packet_size]
-                    self.sock.sendto(chunk, (self.target_ip, self.port))
+            samples = []
+            for (x, y, _z, status, r8, g8, b8) in points:
+                blanked = (status & STATUS_BLANKED_MASK) != 0
+
+                x16, y16 = self._transform_xy(x, y)
+                if blanked:
+                    r16 = g16 = b16 = 0
+                else:
+                    r16 = self._to_u16_from_u8(r8)
+                    g16 = self._to_u16_from_u8(g8)
+                    b16 = self._to_u16_from_u8(b8)
+
+                samples.append(struct.pack(
+                    ">B H H H H H",
+                    IW_TYPE_3,
+                    x16, y16, r16, g16, b16
+                ))
+
+            # Chunk into packets
+            for i in range(0, len(samples), max_points_per_packet):
+                chunk = b"".join(samples[i:i + max_points_per_packet])
+                if chunk:
+                    self.sock.sendto(chunk, (self.ip, self.port))
                     self.bytes_sent += len(chunk)
+                    if self.point_delay > 0:
+                        time.sleep(self.point_delay)
 
-                self.packets_sent += 1
-                return True
+            self.packets_sent += 1
+            return True
 
         except Exception as e:
             self.error_count += 1
             self.last_error = str(e)
+            self.connected = False
             return False
 
-    def _packet_to_network_data(self, packet: IWPPacket) -> bytes:
-        """Convert IWP packet to network transmission format"""
-        samples = []
+    def connect(self) -> bool:
+        """Establish UDP connection"""
+        self._setup_connection()
+        return self.connected
 
-        for point in packet.points:
-            # Transform coordinates (ILDA to IWP)
-            x16 = (point.x + 0x8000) & 0xFFFF
-            y16 = (-point.y + 0x8000) & 0xFFFF
+    def disconnect(self):
+        """Close UDP connection"""
+        if self.sock:
+            try:
+                # Send end frame
+                end_packet = struct.pack(">B", IW_TYPE_0)
+                self.sock.sendto(end_packet, (self.ip, self.port))
+            except:
+                pass
+            finally:
+                self.sock.close()
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.connected = False
 
-            # Handle blanking and colors
-            if point.blanking:
-                r16 = g16 = b16 = 0
-            else:
-                # Ensure 16-bit values
-                r16 = point.r if point.r > 255 else point.r * 257
-                g16 = point.g if point.g > 255 else point.g * 257
-                b16 = point.b if point.b > 255 else point.b * 257
-
-            # Pack as IW_TYPE_3 format (16-bit coordinates + 16-bit colors)
-            sample = struct.pack(">B H H H H H", IW_TYPE_3, x16, y16, r16, g16, b16)
-            samples.append(sample)
-
-        return b"".join(samples)
-
-    def set_target(self, ip: str, port: int):
+    def set_target(self, ip: str, port: int = 7200):
         """Update target IP and port"""
-        self.target_ip = ip
+        self.ip = ip
         self.port = port
         if self.connected:
             self.disconnect()
 
     def set_scan_rate(self, scan_rate: int):
         """Update scan rate"""
-        self.scan_period = max(1, min(4294967295, int(1000000 / scan_rate)))
+        self.scan_period = max(1, min(4294967295, int(1000000/int(scan_rate))))
         if self.connected:
-            # Send updated scan period
             try:
                 setup_packet = struct.pack(">B I", IW_TYPE_1, self.scan_period)
-                self.sock.sendto(setup_packet, (self.target_ip, self.port))
+                self.sock.sendto(setup_packet, (self.ip, self.port))
             except:
                 pass
+
+    def set_point_delay(self, point_delay: float):
+        """Set point delay for frame rate control"""
+        self.point_delay = max(0.0, point_delay)
+
+    def set_fps_delay(self, fps: float):
+        """Set delay based on FPS like iwp-ilda.py"""
+        if fps > 0:
+            self.point_delay = 1.0 / fps
+        else:
+            self.point_delay = 0.0
 
     def get_stats(self) -> dict:
         """Get transmission statistics"""
         return {
             'connected': self.connected,
-            'target_ip': self.target_ip,
+            'target_ip': self.ip,
             'port': self.port,
             'packets_sent': self.packets_sent,
             'bytes_sent': self.bytes_sent,
@@ -460,7 +429,8 @@ class IntegratedILDASystem:
         self.loader = ILDALoader()
         self.player = ILDAPlayer(self.loader)
         self.converter = ILDAToIWPConverter()
-        self.sender = NetworkSender()
+        self.sender = ProjectorSender()
+        self.current_frame_points = None
         self.current_packet = None
         self.transmission_enabled = False
 
@@ -478,21 +448,52 @@ class IntegratedILDASystem:
         return False
 
     def update(self) -> Optional[IWPPacket]:
-        """Update and get current IWP packet"""
+        """Update and get current IWP packet for compatibility"""
         frame_changed = self.player.update()
 
-        if frame_changed or self.current_packet is None:
+        if frame_changed or self.current_frame_points is None:
             current_frame = self.player.get_current_frame()
             if current_frame:
-                self.current_packet = self.converter.convert_frame_to_packet(current_frame)
+                self.current_frame_points = self.converter.convert_frame_to_points(current_frame)
 
                 # Send over network if transmission is enabled
-                if self.transmission_enabled and self.current_packet:
-                    self.sender.send_packet(self.current_packet)
+                if self.transmission_enabled and self.current_frame_points:
+                    self.sender.send_frame(self.current_frame_points)
 
+                # Create IWP packet for compatibility with main program
+                self.current_packet = self._create_iwp_packet_from_points(self.current_frame_points)
                 return self.current_packet
 
         return self.current_packet
+
+    def _create_iwp_packet_from_points(self, points: List[Tuple[int, int, int, int, int, int, int]]) -> IWPPacket:
+        """Create IWP packet from point data for main program compatibility"""
+        try:
+            from iwp_protocol import IWPPoint
+        except ImportError:
+            from .iwp_protocol import IWPPoint
+
+        iwp_points = []
+        for x, y, z, status, r, g, b in points:
+            blanking = bool(status & STATUS_BLANKED_MASK)
+            iwp_point = IWPPoint(
+                x=x,  # Keep original ILDA coordinates
+                y=y,  # Keep original ILDA coordinates
+                r=r,  # Keep original color values
+                g=g,
+                b=b,
+                blanking=blanking
+            )
+            iwp_points.append(iwp_point)
+
+        return IWPPacket(
+            points=iwp_points,
+            commands=[],
+            point_count=len(iwp_points),
+            scan_period=None,
+            timestamp=int(time.time() * 1000000),
+            raw_size=len(iwp_points) * 11
+        )
 
     def enable_transmission(self, target_ip: str, port: int = 7200, scan_rate: int = 1000) -> bool:
         """Enable network transmission"""
@@ -516,7 +517,7 @@ class IntegratedILDASystem:
         """Get the player for direct control"""
         return self.player
 
-    def get_sender(self) -> NetworkSender:
+    def get_sender(self) -> ProjectorSender:
         """Get the network sender for direct control"""
         return self.sender
 
@@ -545,10 +546,10 @@ def main():
 
         try:
             while True:
-                packet = system.update()
-                if packet:
+                points = system.update()
+                if points:
                     status = system.get_status()
-                    print(f"Frame {status['current_frame']}/{status['total_frames']} - {packet.point_count} points")
+                    print(f"Frame {status['current_frame']}/{status['total_frames']} - {len(points)} points")
                 time.sleep(0.1)
 
         except KeyboardInterrupt:

@@ -9,6 +9,7 @@ import math
 import time
 import os
 import re
+import socket
 from typing import List, Tuple, Optional
 from iwp_protocol import IWPPoint, IWPPacket, iwp_to_screen_coords, ilda_to_screen_coords
 from udp_server import UDPServer
@@ -27,6 +28,17 @@ class EnhancedLaserVisualizer:
         b8 = min(255, b >> 8) if b > 255 else b
         return (r8, g8, b8)
 
+    @staticmethod
+    def _get_local_ip() -> str:
+        """Get the local IP address of the computer"""
+        try:
+            # Connect to a remote address to get the local IP
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                return s.getsockname()[0]
+        except Exception:
+            return "127.0.0.1"
+
     def __init__(self, width: int = 1200, height: int = 800, title: str = "IWP Laser Tools"):
         self.width = width
         self.height = height
@@ -34,7 +46,7 @@ class EnhancedLaserVisualizer:
 
         # UI Layout dimensions
         self.left_panel_width = 260  # Increased for better spacing
-        self.top_panel_height = 60   # Reduced for more space
+        self.top_panel_height = 80   # Increased for toggle switch visibility
         self.bottom_panel_height = 30 # Minimal bottom panel
         self.viz_x = self.left_panel_width + 10  # Add margin
         self.viz_y = self.top_panel_height + 10  # Add margin
@@ -50,7 +62,7 @@ class EnhancedLaserVisualizer:
         self.small_font = pygame.font.Font(None, 16)
 
         # Application state
-        self.app_mode = "receiver"  # "receiver" or "sender"
+        self.app_mode = "sender"  # "receiver" or "sender"
         self.running = True
 
         # Visualization state
@@ -73,6 +85,9 @@ class EnhancedLaserVisualizer:
         self.packet_count = 0
         self.last_packet_time = 0
         self.pattern_type = "Unknown"
+
+        # iwp-ilda.py style transmission control
+        self.transmission_active = False
 
         # Network components
         self.udp_server = None
@@ -97,12 +112,12 @@ class EnhancedLaserVisualizer:
         self.top_panel = Panel(0, 0, self.width, self.top_panel_height, "")
         self.top_panel.background_color = (30, 30, 30)
 
-        # Mode toggle button
-        self.mode_button = Button(20, 15, 140, 35, "Receiver Mode", self._toggle_app_mode, BLUE)
-        self.top_panel.add_widget(self.mode_button)
+        # Mode toggle switch (False=sender/left, True=receiver/right)
+        self.mode_toggle = ToggleSwitch(100, 25, 120, 30, False, self._toggle_app_mode, "")
+        self.top_panel.add_widget(self.mode_toggle)
 
         # File browser button
-        self.file_button = Button(180, 15, 120, 35, "Load ILDA", self._show_file_browser, GRAY)
+        self.file_button = Button(320, 25, 120, 35, "Load ILDA", self._show_file_browser, GRAY)
         self.top_panel.add_widget(self.file_button)
 
         # Connection status indicator
@@ -117,14 +132,14 @@ class EnhancedLaserVisualizer:
         y_pos = 100  # Increased top margin
         spacing = 55  # Increased spacing between controls
 
-        # IP address input
-        self.ip_input = TextInput(20, y_pos, 210, 32, "192.168.1.100", "Target IP Address",
+        # IP address input with label
+        self.ip_input = TextInput(60, y_pos, 170, 32, "192.168.1.100", "IP Address",
                                  r"^(\d{1,3}\.){0,3}\d{0,3}$")
         self.left_panel.add_widget(self.ip_input)
         y_pos += spacing
 
-        # Port input
-        self.port_input = TextInput(20, y_pos, 210, 32, "7200", "Port", r"^\d{0,5}$")
+        # Port input with label
+        self.port_input = TextInput(80, y_pos, 150, 32, "7200", "Port", r"^\d{0,5}$")
         self.left_panel.add_widget(self.port_input)
         y_pos += spacing
 
@@ -149,7 +164,8 @@ class EnhancedLaserVisualizer:
 
         self.stop_button = Button(130, y_pos, 100, 35, "Stop", self._stop_ilda_playback, RED)
         self.left_panel.add_widget(self.stop_button)
-        y_pos += 50
+        y_pos += 45
+
 
         # Frame navigation
         self.prev_button = Button(20, y_pos, 100, 32, "Previous", self._previous_frame, GRAY)
@@ -165,21 +181,16 @@ class EnhancedLaserVisualizer:
         self.left_panel.add_widget(self.speed_slider)
         y_pos += spacing
 
+
         # Loop toggle
         self.loop_toggle = ToggleSwitch(20, y_pos, 100, 32, True,
                                        self._on_loop_toggle, "Loop")
         self.left_panel.add_widget(self.loop_toggle)
-
-        # Network transmission toggle
-        self.transmission_toggle = ToggleSwitch(130, y_pos, 100, 32, False,
-                                               self._on_transmission_toggle, "Transmit")
-        self.left_panel.add_widget(self.transmission_toggle)
         y_pos += 50
 
-        # Connection button
-        self.connect_button = Button(20, y_pos, 210, 35, "Start Server", self._test_connection, GREEN)
-        self.left_panel.add_widget(self.connect_button)
-
+        # Combined Transmit/Send ILDA button at bottom
+        self.transmit_button = Button(20, y_pos, 210, 35, "Start Transmission", self._toggle_transmission, GREEN)
+        self.left_panel.add_widget(self.transmit_button)
 
         # Bottom panel - Status bar
         self.bottom_panel = Panel(0, self.height - self.bottom_panel_height,
@@ -189,24 +200,37 @@ class EnhancedLaserVisualizer:
         # Update UI for current mode
         self._update_ui_for_mode()
 
-    def _toggle_app_mode(self):
+    def _toggle_app_mode(self, state=None):
         """Toggle between receiver and sender mode"""
-        self.app_mode = "sender" if self.app_mode == "receiver" else "receiver"
+        if state is not None:
+            # False = sender (left), True = receiver (right)
+            self.app_mode = "receiver" if state else "sender"
+        else:
+            self.app_mode = "sender" if self.app_mode == "receiver" else "receiver"
+            self.mode_toggle.set_state(self.app_mode == "receiver")
         self._update_ui_for_mode()
         print(f"Switched to {self.app_mode} mode")
 
     def _update_ui_for_mode(self):
         """Update UI elements based on current mode"""
         if self.app_mode == "receiver":
-            self.mode_button.text = "📡 Receiver Mode"
-            self.mode_button.color = BLUE
-            self.transmission_toggle.enabled = False
-            self.connect_button.text = "Start Server"
+            self.transmit_button.enabled = False
+            # Display local IP address in receiver mode (for reference)
+            # Users can change this to 127.0.0.1 for localhost testing
+            local_ip = self._get_local_ip()
+            self.ip_input.set_text(local_ip)
+            # Auto-start UDP server in receiver mode
+            if not self.udp_server:
+                self._start_udp_server()
         else:  # sender mode
-            self.mode_button.text = "📤 Sender Mode"
-            self.mode_button.color = BLACK
-            self.transmission_toggle.enabled = True
-            self.connect_button.text = "Test Connection"
+            self.transmit_button.enabled = True
+            # Default to localhost for testing, users can change as needed
+            self.ip_input.set_text("127.0.0.1")
+            # Stop UDP server if it was running
+            if self.udp_server:
+                self.udp_server.stop()
+                self.udp_server = None
+                self.status_indicator.set_status("disconnected")
 
     def _show_file_browser(self):
         """Show file browser"""
@@ -242,55 +266,34 @@ class EnhancedLaserVisualizer:
     def _on_fps_change(self, value: float):
         """Handle FPS slider change"""
         self.ilda_system.get_player().set_fps(value)
+        # Also set point delay on sender for iwp-ilda.py compatibility
+        if self.app_mode == "sender":
+            self.ilda_system.get_sender().set_fps_delay(value)
 
     def _on_speed_change(self, value: float):
         """Handle speed slider change"""
         self.ilda_system.get_player().set_speed(value)
 
+
     def _on_loop_toggle(self, enabled: bool):
         """Handle loop toggle"""
         self.ilda_system.get_player().loop = enabled
 
-    def _on_transmission_toggle(self, enabled: bool):
-        """Handle transmission toggle"""
-        if self.app_mode == "sender":
-            if enabled:
-                ip = self.ip_input.get_text()
-                port = int(self.port_input.get_text() or "7200")
-                scan_rate = int(self.scan_rate_slider.get_value())
-                success = self.ilda_system.enable_transmission(ip, port, scan_rate)
-                if success:
-                    self.status_indicator.set_status("connected")
-                    print(f"Transmission enabled to {ip}:{port}")
-                else:
-                    self.status_indicator.set_status("error")
-                    self.transmission_toggle.set_state(False)
-                    print("Failed to enable transmission")
-            else:
-                self.ilda_system.disable_transmission()
-                self.status_indicator.set_status("disconnected")
-                print("Transmission disabled")
 
-    def _test_connection(self):
-        """Test network connection"""
-        if self.app_mode == "receiver":
-            self._start_udp_server()
-        else:
-            # Test sender connection
-            ip = self.ip_input.get_text()
-            port = int(self.port_input.get_text() or "7200")
-            print(f"Testing connection to {ip}:{port}")
 
     def _start_udp_server(self):
         """Start UDP server for receiving IWP data"""
         if not self.udp_server:
             port = int(self.port_input.get_text() or "7200")
-            self.udp_server = UDPServer(port=port)
+            # Always bind to 0.0.0.0 in receiver mode to accept all connections
+            self.udp_server = UDPServer(port=port, bind_address='0.0.0.0')
             self.udp_server.set_packet_callback(self.set_packet)
             if self.udp_server.start():
                 self.status_indicator.set_status("connected")
-                self.connect_button.text = "Stop Server"
-                print(f"UDP server started on port {port}")
+                local_ip = self._get_local_ip()
+                print(f"UDP server started on 0.0.0.0:{port}")
+                print(f"  -> Local network clients connect to: {local_ip}:{port}")
+                print(f"  -> Localhost testing clients connect to: 127.0.0.1:{port}")
             else:
                 self.status_indicator.set_status("error")
                 print("Failed to start UDP server")
@@ -298,7 +301,6 @@ class EnhancedLaserVisualizer:
             self.udp_server.stop()
             self.udp_server = None
             self.status_indicator.set_status("disconnected")
-            self.connect_button.text = "Start Server"
             print("UDP server stopped")
 
     def _toggle_ilda_playback(self):
@@ -408,8 +410,14 @@ class EnhancedLaserVisualizer:
 
         screen_points = []
         for point in packet.points:
-            # Use standard IWP coordinate transformation for visualization area
-            sx, sy = iwp_to_screen_coords(point.x, point.y, viz_rect.width, viz_rect.height)
+            # Use correct coordinate transformation based on mode and data type
+            if self.app_mode == "sender":
+                # In sender mode, packet contains ILDA coordinates (-32768 to +32767)
+                sx, sy = ilda_to_screen_coords(point.x, point.y, viz_rect.width, viz_rect.height)
+            else:
+                # In receiver mode, packet contains IWP coordinates (0 to 65535)
+                sx, sy = iwp_to_screen_coords(point.x, point.y, viz_rect.width, viz_rect.height)
+
             # Offset to visualization area position
             screen_x = viz_rect.x + sx
             screen_y = viz_rect.y + sy
@@ -450,6 +458,35 @@ class EnhancedLaserVisualizer:
                 pygame.draw.circle(self.screen, color, (sx, sy), size)
 
 
+    def _draw_toggle_labels(self):
+        """Draw Sender/Receiver labels for toggle switch"""
+        # Sender label (left side)
+        sender_label = self.font.render("Sender", True, WHITE)
+        sender_x = self.mode_toggle.rect.x - sender_label.get_width() - 10
+        sender_y = self.mode_toggle.rect.y + (self.mode_toggle.rect.height - sender_label.get_height()) // 2
+        self.screen.blit(sender_label, (sender_x, sender_y))
+
+        # Receiver label (right side)
+        receiver_label = self.font.render("Receiver", True, WHITE)
+        receiver_x = self.mode_toggle.rect.right + 10
+        receiver_y = self.mode_toggle.rect.y + (self.mode_toggle.rect.height - receiver_label.get_height()) // 2
+        self.screen.blit(receiver_label, (receiver_x, receiver_y))
+
+    def _draw_input_labels(self):
+        """Draw labels for IP and Port input fields"""
+        # Get the absolute positions of the input fields
+        panel_offset_y = self.left_panel.rect.y
+
+        # IP label - align with text box
+        ip_label = self.font.render("IP:", True, WHITE)
+        ip_y = panel_offset_y + self.ip_input.rect.y + (self.ip_input.rect.height - ip_label.get_height()) // 2
+        self.screen.blit(ip_label, (20, ip_y))
+
+        # Port label - align with text box
+        port_label = self.font.render("PORT:", True, WHITE)
+        port_y = panel_offset_y + self.port_input.rect.y + (self.port_input.rect.height - port_label.get_height()) // 2
+        self.screen.blit(port_label, (20, port_y))
+
     def _draw_status_bar(self):
         """Draw status information in bottom panel"""
         status_y = self.height - self.bottom_panel_height + 15
@@ -460,14 +497,20 @@ class EnhancedLaserVisualizer:
         self.screen.blit(text, (20, status_y))
 
         # Network stats
-        if self.app_mode == "sender" and self.transmission_toggle.state:
-            stats = self.ilda_system.get_network_stats()
-            net_text = f"Transmitting to {stats['target_ip']}:{stats['port']} | Packets: {stats['packets_sent']}"
+        if self.app_mode == "sender" and self.transmission_active:
+            ip = self.ip_input.get_text()
+            port = self.port_input.get_text()
+            net_text = f"Transmitting to {ip}:{port} | Loop: {'ON' if self.loop_toggle.state else 'OFF'}"
             text = self.small_font.render(net_text, True, GREEN)
             self.screen.blit(text, (200, status_y))
-        elif self.app_mode == "receiver" and self.udp_server:
-            recv_text = f"Listening on port {self.port_input.get_text()} | Packets received: {self.packet_count}"
-            text = self.small_font.render(recv_text, True, BLUE)
+        elif self.app_mode == "receiver":
+            local_ip = self._get_local_ip()
+            if self.udp_server:
+                recv_text = f"Listening on all interfaces (clients connect to {local_ip}:{self.port_input.get_text()}) | Packets: {self.packet_count}"
+                text = self.small_font.render(recv_text, True, BLUE)
+            else:
+                recv_text = f"Ready to receive (clients should connect to {local_ip}:{self.port_input.get_text()})"
+                text = self.small_font.render(recv_text, True, GRAY)
             self.screen.blit(text, (200, status_y))
 
         # FPS
@@ -569,6 +612,107 @@ class EnhancedLaserVisualizer:
             elif event.key == pygame.K_RETURN:
                 self._select_file_from_browser()
 
+    def _toggle_transmission(self):
+        """Toggle transmission on/off - combines Send ILDA functionality with start/stop"""
+        if self.transmission_active:
+            # Stop transmission
+            self._stop_transmission()
+        else:
+            # Start transmission
+            self._start_iwp_ilda_transmission()
+
+    def _stop_transmission(self):
+        """Stop ongoing transmission"""
+        self.transmission_active = False
+        self.transmit_button.text = "Start Transmission"
+        self.transmit_button.color = GREEN
+        print("Transmission stopped")
+
+    def _start_iwp_ilda_transmission(self):
+        """Start iwp-ilda.py style transmission with current GUI settings"""
+        if not self.ilda_file_path:
+            print("No ILDA file loaded - use 'Load ILDA' button first")
+            return
+
+        if self.transmission_active:
+            print("Transmission already in progress")
+            return
+
+        # Get current GUI settings
+        ip = self.ip_input.get_text()
+        port = int(self.port_input.get_text() or "7200")
+        scan_rate = int(self.scan_rate_slider.get_value())
+        fps = self.fps_slider.get_value()
+        loop_enabled = self.loop_toggle.state
+
+        print(f"Starting iwp-ilda.py style transmission:")
+        import os
+        print(f"  File: {os.path.basename(self.ilda_file_path)}")
+        print(f"  Target: {ip}:{port}")
+        print(f"  Scan Rate: {scan_rate} Hz")
+        print(f"  FPS: {fps}")
+        print(f"  Loop: {'Infinite' if loop_enabled else 'Play once'}")
+
+        self.transmission_active = True
+        self.transmit_button.text = "Stop Transmission"
+        self.transmit_button.color = RED
+
+        # Create a direct transmission using iwp-ilda.py logic
+        import threading
+        transmission_thread = threading.Thread(
+            target=self._iwp_ilda_transmission_worker,
+            args=(ip, port, scan_rate, fps, loop_enabled),
+            daemon=True
+        )
+        transmission_thread.start()
+
+    def _iwp_ilda_transmission_worker(self, ip: str, port: int, scan_rate: int, fps: float, loop_enabled: bool):
+        """Worker thread for iwp-ilda.py style transmission"""
+        try:
+            # Use the existing ILDA system with ProjectorSender from ilda_integration.py
+            from ilda_integration import ILDALoader, ProjectorSender
+
+            # Load ILDA file using the existing loader
+            loader = ILDALoader()
+            if not loader.load_file(self.ilda_file_path):
+                print("No frames parsed or unsupported file.")
+                return
+
+            # Calculate point delay exactly like iwp-ilda.py
+            point_delay = 0.0
+            if fps > 0:
+                point_delay = 1.0 / fps
+
+            # Create sender exactly like iwp-ilda.py
+            sender = ProjectorSender(ip, scan_rate, point_delay=point_delay)
+
+            # Transmission loop - use loop toggle instead of repeat count
+            loops = 0
+            while self.transmission_active:
+                loops += 1
+                for frame in loader.frames:
+                    if not self.transmission_active:  # Check if stopped during frame
+                        break
+                    sender.send_frame(frame.points)
+
+                if loop_enabled:
+                    print(f"Completed loop {loops} (infinite mode)")
+                else:
+                    print(f"Completed transmission (single play)")
+                    break
+
+            print("Transmission completed")
+
+        except Exception as e:
+            print(f"Transmission error: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            # Reset UI state
+            self.transmission_active = False
+            self.transmit_button.text = "Start Transmission"
+            self.transmit_button.color = GREEN
+
     def _select_file_from_browser(self):
         """Select file from browser"""
         if not self.file_browser_files or self.file_browser_selected >= len(self.file_browser_files):
@@ -591,13 +735,16 @@ class EnhancedLaserVisualizer:
             file_path = os.path.join(self.current_directory, filename)
             if self.ilda_system.load_file(file_path):
                 self.ilda_file_path = file_path
-                print(f"Loaded ILDA file: {filename}")
+                print(f"✓ Loaded ILDA file: {filename}")
+                print(f"  Ready to send using 'Start Transmission' button")
+                print(f"  Current settings: {int(self.scan_rate_slider.get_value())}Hz scan, {self.fps_slider.get_value()} FPS, Loop: {'ON' if self.loop_toggle.state else 'OFF'}")
                 self.show_file_browser = False
                 # Auto-switch to sender mode if loading ILDA file
                 if self.app_mode == "receiver":
                     self._toggle_app_mode()
+                    print("  Switched to Sender mode")
             else:
-                print(f"Failed to load ILDA file: {filename}")
+                print(f"✗ Failed to load ILDA file: {filename}")
 
     def update(self):
         """Update application state"""
@@ -624,7 +771,9 @@ class EnhancedLaserVisualizer:
 
         # Draw UI panels
         self.top_panel.draw(self.screen)
+        self._draw_toggle_labels()
         self.left_panel.draw(self.screen)
+        self._draw_input_labels()
         self.bottom_panel.draw(self.screen)
 
         # Draw additional info
@@ -674,7 +823,8 @@ def main():
 
     parser = argparse.ArgumentParser(description='Enhanced IWP Visualizer with Sender/Receiver modes')
     parser.add_argument('--ilda-file', type=str, help='Load ILDA file on startup')
-    parser.add_argument('--mode', choices=['sender', 'receiver'], default='receiver', help='Start in sender or receiver mode')
+    parser.add_argument('--mode', choices=['sender', 'receiver'], default='sender', help='Start in sender or receiver mode')
+    parser.add_argument('--fps', type=float, default=25, help='Frame rate for ILDA playback (0 = as fast as possible)')
     parser.add_argument('--width', type=int, default=1200, help='Window width')
     parser.add_argument('--height', type=int, default=800, help='Window height')
 
@@ -683,8 +833,15 @@ def main():
     visualizer = EnhancedLaserVisualizer(width=args.width, height=args.height)
 
     # Set initial mode
-    if args.mode == "sender":
+    if args.mode == "receiver":
         visualizer._toggle_app_mode()
+
+    # Set FPS
+    if args.fps > 0:
+        visualizer.ilda_system.get_player().set_fps(args.fps)
+    else:
+        # 0 fps = as fast as possible (like original iwp-ilda.py)
+        visualizer.ilda_system.get_player().set_fps(1000)  # Very high fps for "as fast as possible"
 
     # Load ILDA file if provided
     if args.ilda_file:
