@@ -438,6 +438,8 @@ class IntegratedILDASystem:
         """Load an ILDA file"""
         if self.loader.load_file(filename):
             self.player = ILDAPlayer(self.loader)  # Reset player
+            self.current_frame_points = None  # Reset frame cache to force update
+            self.current_packet = None  # Reset packet cache
             print(f"Loaded ILDA file: {filename}")
             print(f"  Frames: {self.loader.get_frame_count()}")
             if self.loader.frames:

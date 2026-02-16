@@ -15,7 +15,7 @@ from iwp_protocol import IWPPoint, IWPPacket, iwp_to_screen_coords, ilda_to_scre
 from udp_server import UDPServer
 from ilda_integration import IntegratedILDASystem
 from ui_widgets import Panel, Button, TextInput, Slider, StatusIndicator, ToggleSwitch
-from ui_widgets import WHITE, BLACK, GRAY, DARK_GRAY, GREEN, RED, BLUE, YELLOW, LIGHT_GRAY, ORANGE
+from ui_widgets import WHITE, BLACK, GRAY, DARK_GRAY, GREEN, RED, BLUE, YELLOW, LIGHT_GRAY, ORANGE, BACKGROUND
 
 class EnhancedLaserVisualizer:
     """Enhanced laser visualizer with unified sender/receiver functionality"""
@@ -132,14 +132,14 @@ class EnhancedLaserVisualizer:
         y_pos = 100  # Increased top margin
         spacing = 55  # Increased spacing between controls
 
-        # IP address input with label
-        self.ip_input = TextInput(60, y_pos, 170, 32, "192.168.1.100", "IP Address",
+        # IP address input with label - aligned properly
+        self.ip_input = TextInput(70, y_pos, 160, 32, "192.168.1.100", "IP Address",
                                  r"^(\d{1,3}\.){0,3}\d{0,3}$")
         self.left_panel.add_widget(self.ip_input)
         y_pos += spacing
 
-        # Port input with label
-        self.port_input = TextInput(80, y_pos, 150, 32, "7200", "Port", r"^\d{0,5}$")
+        # Port input with label - aligned with IP
+        self.port_input = TextInput(70, y_pos, 160, 32, "7200", "Port", r"^\d{0,5}$")
         self.left_panel.add_widget(self.port_input)
         y_pos += spacing
 
@@ -155,32 +155,11 @@ class EnhancedLaserVisualizer:
         self.left_panel.add_widget(self.fps_slider)
         y_pos += spacing + 5
 
-        # Playback controls section
-        y_pos += 20  # Extra space before playback section
-
-        # Play/Stop buttons on same row
-        self.play_button = Button(20, y_pos, 100, 35, "Play", self._toggle_ilda_playback, GREEN)
-        self.left_panel.add_widget(self.play_button)
-
-        self.stop_button = Button(130, y_pos, 100, 35, "Stop", self._stop_ilda_playback, RED)
-        self.left_panel.add_widget(self.stop_button)
-        y_pos += 45
-
-
-        # Frame navigation
-        self.prev_button = Button(20, y_pos, 100, 32, "Previous", self._previous_frame, GRAY)
-        self.left_panel.add_widget(self.prev_button)
-
-        self.next_button = Button(130, y_pos, 100, 32, "Next", self._next_frame, GRAY)
-        self.left_panel.add_widget(self.next_button)
-        y_pos += 50
-
         # Speed slider
         self.speed_slider = Slider(20, y_pos, 210, 28, 0.1, 5.0, 1.0,
                                   self._on_speed_change, "Speed", 1)
         self.left_panel.add_widget(self.speed_slider)
-        y_pos += spacing
-
+        y_pos += spacing + 5
 
         # Loop toggle
         self.loop_toggle = ToggleSwitch(20, y_pos, 100, 32, True,
@@ -303,28 +282,7 @@ class EnhancedLaserVisualizer:
             self.status_indicator.set_status("disconnected")
             print("UDP server stopped")
 
-    def _toggle_ilda_playback(self):
-        """Toggle ILDA playback"""
-        player = self.ilda_system.get_player()
-        if player.playing:
-            player.pause()
-            self.play_button.text = "Play"
-        else:
-            player.play()
-            self.play_button.text = "Pause"
-
-    def _stop_ilda_playback(self):
-        """Stop ILDA playback"""
-        self.ilda_system.get_player().stop()
-        self.play_button.text = "Play"
-
-    def _previous_frame(self):
-        """Go to previous frame"""
-        self.ilda_system.get_player().previous_frame()
-
-    def _next_frame(self):
-        """Go to next frame"""
-        self.ilda_system.get_player().next_frame()
+    # Removed playback control methods as they're no longer needed
 
     def set_packet(self, packet: IWPPacket, source_address: str):
         """Update display with new packet data (for receiver mode)"""
@@ -338,11 +296,19 @@ class EnhancedLaserVisualizer:
             self.packet_history.append(packet)
 
     def _draw_visualization_area(self):
-        """Draw the main visualization area"""
-        # Create visualization surface
+        """Draw the main visualization area with modern styling"""
+        # Create visualization surface with rounded corners and shadow
         viz_rect = pygame.Rect(self.viz_x, self.viz_y, self.viz_width, self.viz_height)
-        pygame.draw.rect(self.screen, BLACK, viz_rect)
-        pygame.draw.rect(self.screen, GRAY, viz_rect, 1)
+
+        # Draw shadow
+        shadow_rect = viz_rect.copy()
+        shadow_rect.x += 3
+        shadow_rect.y += 4
+        pygame.draw.rect(self.screen, (0, 0, 0, 30), shadow_rect, border_radius=8)
+
+        # Draw main visualization area
+        pygame.draw.rect(self.screen, BLACK, viz_rect, border_radius=8)
+        pygame.draw.rect(self.screen, GRAY, viz_rect, 2, border_radius=8)
 
         # Set clipping to visualization area for drawing
         self.screen.set_clip(viz_rect)
@@ -743,6 +709,9 @@ class EnhancedLaserVisualizer:
                 if self.app_mode == "receiver":
                     self._toggle_app_mode()
                     print("  Switched to Sender mode")
+                # Force initial frame display by triggering an update
+                self.ilda_packet = self.ilda_system.update()
+                print(f"  Displaying frame 1 of {self.ilda_system.loader.get_frame_count()}")
             else:
                 print(f"✗ Failed to load ILDA file: {filename}")
 
@@ -764,7 +733,7 @@ class EnhancedLaserVisualizer:
     def render(self):
         """Render the complete interface"""
         # Clear screen
-        self.screen.fill(BLACK)
+        self.screen.fill(BACKGROUND)
 
         # Draw main visualization area
         self._draw_visualization_area()

@@ -9,18 +9,34 @@ import re
 from typing import Optional, Callable, Tuple, Any
 from enum import Enum
 
-# Colors
-WHITE = (255, 255, 255)
+# Modern Color System (shadcn/ui inspired)
+# Backgrounds
+BACKGROUND = (9, 9, 11)        # Dark background
+SURFACE = (24, 24, 27)         # Panel/card background
+SURFACE_HOVER = (39, 39, 42)   # Hover states
+
+# Borders
+BORDER = (39, 39, 42)          # Default borders
+BORDER_SUBTLE = (63, 63, 70)   # Subtle borders
+
+# Text
+WHITE = (250, 250, 250)        # Primary text
+TEXT_SECONDARY = (161, 161, 170) # Secondary text
+TEXT_MUTED = (113, 113, 122)   # Muted text
+
+# Legacy colors (keep for compatibility)
 BLACK = (0, 0, 0)
-GRAY = (128, 128, 128)
-DARK_GRAY = (64, 64, 64)
-LIGHT_GRAY = (192, 192, 192)
-BLUE = (0, 100, 255)
-LIGHT_BLUE = (100, 150, 255)
-GREEN = (0, 255, 0)
-RED = (255, 0, 0)
-YELLOW = (255, 255, 0)
-ORANGE = (255, 128, 0)
+GRAY = (113, 113, 122)         # Updated to muted text
+DARK_GRAY = (39, 39, 42)       # Updated to surface hover
+LIGHT_GRAY = (161, 161, 170)   # Updated to secondary text
+
+# Accent colors (modern, less saturated)
+BLUE = (59, 130, 246)          # Primary blue
+LIGHT_BLUE = (147, 197, 253)   # Light blue
+GREEN = (34, 197, 94)          # Success green
+RED = (239, 68, 68)            # Error red
+YELLOW = (245, 158, 11)        # Warning amber
+ORANGE = (249, 115, 22)        # Orange accent
 
 class UIWidget:
     """Base class for UI widgets"""
@@ -60,20 +76,38 @@ class Button(UIWidget):
         if not self.visible:
             return
 
-        # Button background
+        # Modern button styling with rounded corners
+        radius = 8
+
+        # Button background with modern color states
         button_color = self.color
+        border_color = BORDER
+
         if not self.enabled:
             button_color = DARK_GRAY
+            border_color = BORDER_SUBTLE
         elif self.pressed:
-            button_color = tuple(max(0, c - 40) for c in self.color)
+            # Darker pressed state
+            button_color = tuple(max(0, c - 30) for c in self.color)
+            border_color = tuple(max(0, c - 20) for c in border_color)
         elif self.hover:
-            button_color = tuple(min(255, c + 20) for c in self.color)
+            # Lighter hover state with subtle glow effect
+            button_color = tuple(min(255, c + 15) for c in self.color)
+            border_color = tuple(min(255, c + 30) for c in self.color)
 
-        pygame.draw.rect(surface, button_color, self.rect)
-        pygame.draw.rect(surface, WHITE, self.rect, 1)
+        # Draw subtle shadow first (offset slightly)
+        shadow_rect = self.rect.copy()
+        shadow_rect.x += 1
+        shadow_rect.y += 2
+        shadow_color = (0, 0, 0, 40)  # Semi-transparent black
+        pygame.draw.rect(surface, shadow_color[:3], shadow_rect, border_radius=radius)
 
-        # Button text
-        text_color = WHITE if self.enabled else GRAY
+        # Draw main button with rounded corners
+        pygame.draw.rect(surface, button_color, self.rect, border_radius=radius)
+        pygame.draw.rect(surface, border_color, self.rect, 2, border_radius=radius)
+
+        # Button text with better typography
+        text_color = WHITE if self.enabled else TEXT_MUTED
         text_surface = self.font.render(self.text, True, text_color)
         text_rect = text_surface.get_rect(center=self.rect.center)
         surface.blit(text_surface, text_rect)
@@ -120,35 +154,50 @@ class TextInput(UIWidget):
         if not self.visible:
             return
 
-        # Input field background
-        bg_color = WHITE if self.enabled else LIGHT_GRAY
-        border_color = BLUE if self.active else GRAY
+        radius = 6  # Rounded corners
+
+        # Modern input field styling
+        bg_color = SURFACE if self.enabled else DARK_GRAY
+        border_color = BLUE if self.active else BORDER
         border_width = 2 if self.active else 1
 
-        pygame.draw.rect(surface, bg_color, self.rect)
-        pygame.draw.rect(surface, border_color, self.rect, border_width)
+        # Draw subtle shadow
+        shadow_rect = self.rect.copy()
+        shadow_rect.x += 1
+        shadow_rect.y += 1
+        pygame.draw.rect(surface, (0, 0, 0, 20), shadow_rect, border_radius=radius)
 
-        # Text content
+        # Draw input field background with rounded corners
+        pygame.draw.rect(surface, bg_color, self.rect, border_radius=radius)
+        pygame.draw.rect(surface, border_color, self.rect, border_width, border_radius=radius)
+
+        # Focus ring effect
+        if self.active:
+            focus_rect = self.rect.copy()
+            focus_rect.inflate_ip(4, 4)
+            pygame.draw.rect(surface, (*BLUE, 30), focus_rect, 3, border_radius=radius+2)
+
+        # Text content with better typography
         display_text = self.text if self.text else self.placeholder
-        text_color = BLACK if self.text else GRAY
+        text_color = WHITE if self.text else TEXT_MUTED
 
         if display_text:
             text_surface = self.font.render(display_text, True, text_color)
-            text_x = self.rect.x + 5
+            text_x = self.rect.x + 12  # More padding
             text_y = self.rect.y + (self.rect.height - text_surface.get_height()) // 2
             surface.blit(text_surface, (text_x, text_y))
 
-        # Cursor
+        # Modern cursor
         if self.active and self.cursor_visible and self.enabled:
-            cursor_x = self.rect.x + 5
+            cursor_x = self.rect.x + 12
             if self.text:
                 cursor_text = self.text[:self.cursor_pos]
                 cursor_width = self.font.size(cursor_text)[0]
                 cursor_x += cursor_width
 
-            cursor_y1 = self.rect.y + 3
-            cursor_y2 = self.rect.bottom - 3
-            pygame.draw.line(surface, BLACK, (cursor_x, cursor_y1), (cursor_x, cursor_y2))
+            cursor_y1 = self.rect.y + 6
+            cursor_y2 = self.rect.bottom - 6
+            pygame.draw.line(surface, BLUE, (cursor_x, cursor_y1), (cursor_x, cursor_y2), 2)
 
     def handle_event(self, event: pygame.event.Event) -> bool:
         if not self.visible or not self.enabled:
@@ -243,32 +292,55 @@ class Slider(UIWidget):
         if not self.visible:
             return
 
-        # Label
+        # Label with better typography
         if self.label:
-            label_surface = self.small_font.render(self.label, True, WHITE)
-            surface.blit(label_surface, (self.rect.x, self.rect.y - 15))
+            label_surface = self.small_font.render(self.label, True, TEXT_SECONDARY)
+            surface.blit(label_surface, (self.rect.x, self.rect.y - 18))
 
-        # Slider track
+        # Modern slider track
         track_y = self.rect.y + self.rect.height // 2
         track_start = (self.rect.x + self.handle_radius, track_y)
         track_end = (self.rect.right - self.handle_radius, track_y)
-        pygame.draw.line(surface, GRAY, track_start, track_end, 3)
 
-        # Slider handle
+        # Background track
+        pygame.draw.line(surface, BORDER, track_start, track_end, 4)
+
+        # Filled portion (progress indicator)
         track_width = self.rect.width - 2 * self.handle_radius
         value_ratio = (self.value - self.min_value) / (self.max_value - self.min_value)
+        fill_end_x = self.rect.x + self.handle_radius + track_width * value_ratio
+        fill_end = (int(fill_end_x), track_y)
+        pygame.draw.line(surface, BLUE, track_start, fill_end, 4)
+
+        # Slider handle with modern styling
         handle_x = self.rect.x + self.handle_radius + track_width * value_ratio
         handle_pos = (int(handle_x), track_y)
 
-        handle_color = LIGHT_BLUE if self.enabled else GRAY
-        pygame.draw.circle(surface, handle_color, handle_pos, self.handle_radius)
-        pygame.draw.circle(surface, WHITE, handle_pos, self.handle_radius, 2)
+        # Handle shadow
+        shadow_pos = (int(handle_x) + 1, track_y + 1)
+        pygame.draw.circle(surface, (0, 0, 0, 60), shadow_pos, self.handle_radius + 1)
 
-        # Value display
+        # Handle styling based on state
+        if not self.enabled:
+            handle_color = BORDER_SUBTLE
+            border_color = BORDER
+        elif self.dragging:
+            handle_color = SURFACE_HOVER
+            border_color = BLUE
+            # Slightly larger when dragging
+            pygame.draw.circle(surface, handle_color, handle_pos, self.handle_radius + 2)
+            pygame.draw.circle(surface, border_color, handle_pos, self.handle_radius + 2, 2)
+        else:
+            handle_color = WHITE
+            border_color = BORDER_SUBTLE
+            pygame.draw.circle(surface, handle_color, handle_pos, self.handle_radius)
+            pygame.draw.circle(surface, border_color, handle_pos, self.handle_radius, 2)
+
+        # Value display with better positioning
         value_text = f"{self.value:.{self.decimal_places}f}"
-        value_surface = self.small_font.render(value_text, True, WHITE)
+        value_surface = self.small_font.render(value_text, True, TEXT_SECONDARY)
         value_x = self.rect.right - value_surface.get_width()
-        surface.blit(value_surface, (value_x, self.rect.bottom + 2))
+        surface.blit(value_surface, (value_x, self.rect.bottom + 4))
 
     def handle_event(self, event: pygame.event.Event) -> bool:
         if not self.visible or not self.enabled:
@@ -355,7 +427,7 @@ class Panel:
     """Container for grouping widgets with background"""
 
     def __init__(self, x: int, y: int, width: int, height: int,
-                 title: str = "", background_color: Tuple[int, int, int] = (20, 20, 20)):
+                 title: str = "", background_color: Tuple[int, int, int] = SURFACE):
         self.rect = pygame.Rect(x, y, width, height)
         self.title = title
         self.background_color = background_color
@@ -371,15 +443,23 @@ class Panel:
         if not self.visible:
             return
 
-        # Panel background
-        pygame.draw.rect(surface, self.background_color, self.rect)
-        pygame.draw.rect(surface, GRAY, self.rect, 1)
+        radius = 8
 
-        # Panel title
+        # Panel shadow
+        shadow_rect = self.rect.copy()
+        shadow_rect.x += 2
+        shadow_rect.y += 3
+        pygame.draw.rect(surface, (0, 0, 0, 25), shadow_rect, border_radius=radius)
+
+        # Modern panel background with rounded corners
+        pygame.draw.rect(surface, self.background_color, self.rect, border_radius=radius)
+        pygame.draw.rect(surface, BORDER, self.rect, 1, border_radius=radius)
+
+        # Panel title with better typography
         if self.title:
             title_surface = self.font.render(self.title, True, WHITE)
-            title_x = self.rect.x + 5
-            title_y = self.rect.y + 5
+            title_x = self.rect.x + 12  # More padding
+            title_y = self.rect.y + 10
             surface.blit(title_surface, (title_x, title_y))
 
         # Draw all widgets
@@ -418,21 +498,50 @@ class ToggleSwitch(UIWidget):
         if not self.visible:
             return
 
-        # Label
+        # Label with better typography
         if self.label:
-            label_surface = self.font.render(self.label, True, WHITE)
-            surface.blit(label_surface, (self.rect.x, self.rect.y - 20))
+            label_surface = self.font.render(self.label, True, TEXT_SECONDARY)
+            surface.blit(label_surface, (self.rect.x, self.rect.y - 22))
 
-        # Switch track
-        track_color = GREEN if self.state else DARK_GRAY
-        pygame.draw.rect(surface, track_color, self.rect, border_radius=self.rect.height//2)
-        pygame.draw.rect(surface, WHITE, self.rect, 2, border_radius=self.rect.height//2)
+        # Modern iOS-style toggle switch
+        radius = self.rect.height // 2
 
-        # Switch handle
-        handle_radius = self.rect.height // 2 - 2
-        handle_x = self.rect.right - handle_radius - 2 if self.state else self.rect.x + handle_radius + 2
+        # Track shadow
+        shadow_rect = self.rect.copy()
+        shadow_rect.x += 1
+        shadow_rect.y += 2
+        pygame.draw.rect(surface, (0, 0, 0, 30), shadow_rect, border_radius=radius)
+
+        # Switch track with gradient-like effect
+        if self.state:
+            track_color = GREEN
+            border_color = tuple(max(0, c - 40) for c in GREEN)
+        else:
+            track_color = BORDER_SUBTLE
+            border_color = BORDER
+
+        pygame.draw.rect(surface, track_color, self.rect, border_radius=radius)
+        pygame.draw.rect(surface, border_color, self.rect, 1, border_radius=radius)
+
+        # Switch handle with modern styling
+        handle_radius = self.rect.height // 2 - 3
+        handle_padding = 3
+
+        if self.state:
+            handle_x = self.rect.right - handle_radius - handle_padding
+        else:
+            handle_x = self.rect.x + handle_radius + handle_padding
+
         handle_y = self.rect.centery
-        pygame.draw.circle(surface, WHITE, (handle_x, handle_y), handle_radius)
+        handle_pos = (handle_x, handle_y)
+
+        # Handle shadow
+        shadow_pos = (handle_x + 1, handle_y + 1)
+        pygame.draw.circle(surface, (0, 0, 0, 40), shadow_pos, handle_radius + 1)
+
+        # Handle with subtle border
+        pygame.draw.circle(surface, WHITE, handle_pos, handle_radius)
+        pygame.draw.circle(surface, BORDER_SUBTLE, handle_pos, handle_radius, 1)
 
     def handle_event(self, event: pygame.event.Event) -> bool:
         if not self.visible or not self.enabled:
