@@ -180,12 +180,18 @@ def screen_to_iwp_coords(screen_x: int, screen_y: int, screen_width: int, screen
 
 def ilda_to_screen_coords(x: int, y: int, screen_width: int, screen_height: int) -> Tuple[int, int]:
     """
-    Legacy function for backward compatibility
     Convert ILDA coordinates (-32768 to 32767) to screen pixel coordinates
+    Matches the coordinate transformation used in transmission for accurate preview
     """
-    # Map ILDA range to screen coordinates
-    screen_x = int((x + 32768) * screen_width / 65536)
-    screen_y = int((y + 32768) * screen_height / 65536)
+    # Apply the same transformation as ProjectorSender._transform_xy():
+    # xn = (x + 0x8000) and yn = (-y + 0x8000)
+    # Match exactly what the working transmission does
+    transformed_x = (x + 32768)   # Same as transmission: x + 0x8000
+    transformed_y = (-y + 32768)  # Same as transmission: -y + 0x8000
+
+    # Map transformed coordinates to screen coordinates
+    screen_x = int(transformed_x * screen_width / 65536)
+    screen_y = int(transformed_y * screen_height / 65536)
 
     # Clamp to screen bounds
     screen_x = max(0, min(screen_width - 1, screen_x))
